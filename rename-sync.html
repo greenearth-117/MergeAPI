@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rename &amp; Sync — MSP Console</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+
+<div id="topbar">
+  <a href="index.html" class="logo">🛡 MSP Console</a>
+  <a href="organisations.html"   class="nav-link">① Organisations</a>
+  <a href="match-orgs.html"      class="nav-link">② Match Orgs</a>
+  <a href="counts-licenses.html" class="nav-link">③ Counts &amp; Licenses</a>
+  <a href="rename-sync.html"     class="nav-link">④ Rename &amp; Sync</a>
+</div>
+
+<div id="content">
+  <div class="page-title">Rename &amp; Sync</div>
+  <div class="page-sub">Rename organisations across platforms to establish uniformity.</div>
+
+  <div class="fetch-bar">
+    <button class="btn btn-ghost" onclick="loadRenameTable()">⟳ Refresh</button>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Syncro (canonical)</th>
+          <th>Canonical Name</th>
+          <th>Push to</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="rename-tbody">
+        <tr><td colspan="4" style="color:var(--muted);padding:20px">
+          Complete matching on the <a href="match-orgs.html" style="color:var(--ninja)">Match Orgs page</a> first.
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="notif"></div>
+<script src="_shared.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', loadRenameTable);
+
+function loadRenameTable() {
+  const matches = State.matches;
+  const tbody   = document.getElementById('rename-tbody');
+  if (!matches.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:20px">No matches found. <a href="match-orgs.html" style="color:var(--ninja)">Go to Match Orgs</a>.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = matches.map((m, i) => `
+    <tr class="rename-row">
+      <td><strong>${m.syncroName}</strong></td>
+      <td><input id="rname-${i}" value="${m.syncroName.trim()}"></td>
+      <td>
+        <div class="cb-group">
+          <label class="cb-label"><input type="checkbox" id="rn-ninja-${i}"  ${m.ninjaId ? '' : 'disabled'}> Ninja</label>
+          <label class="cb-label"><input type="checkbox" id="rn-pax8-${i}"   ${m.pax8Id  ? '' : 'disabled'}> Pax8</label>
+          <label class="cb-label"><input type="checkbox" id="rn-syncro-${i}"> Syncro</label>
+        </div>
+      </td>
+      <td><button class="btn btn-primary btn-sm" onclick="pushRename(${i})">Push</button></td>
+    </tr>`).join('');
+}
+
+async function pushRename(i) {
+  const m        = State.matches[i];
+  const newName  = document.getElementById(`rname-${i}`).value.trim();
+  const doNinja  = document.getElementById(`rn-ninja-${i}`).checked;
+  const doPax8   = document.getElementById(`rn-pax8-${i}`).checked;
+  const doSyncro = document.getElementById(`rn-syncro-${i}`).checked;
+
+  if (!newName)                          { notify('Name cannot be empty', 'warn'); return; }
+  if (!doNinja && !doPax8 && !doSyncro)  { notify('Select at least one platform', 'warn'); return; }
+
+  try {
+    if (doNinja)  await api('ninja',  `/v2/organization/${m.ninjaId}`,  'PATCH', { name: newName });
+    if (doPax8)   await api('pax8',   `/v1/companies/${m.pax8Id}`,      'PUT',   { name: newName });
+    if (doSyncro) await api('syncro', `/customers/${m.syncroId}`,       'PUT',   { customer: { name: newName } });
+    notify(`"${newName}" pushed successfully`, 'ok');
+  } catch(e) {
+    notify('Rename failed: ' + e.message, 'err');
+  }
+}
+</script>
+</body>
+</html>
