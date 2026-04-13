@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Match Orgs — MSP Console</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+
+<div id="topbar">
+  <a href="index.html" class="logo">🛡 MSP Console</a>
+  <a href="organisations.html"   class="nav-link">① Organisations</a>
+  <a href="match-orgs.html"      class="nav-link">② Match Orgs</a>
+  <a href="counts-licenses.html" class="nav-link">③ Counts &amp; Licenses</a>
+  <a href="rename-sync.html"     class="nav-link">④ Rename &amp; Sync</a>
+</div>
+
+<div id="content">
+  <div class="page-title">Match Organisations</div>
+  <div class="page-sub">Saved/user matches take priority over auto-match. Auto-match only fills unmatched slots.</div>
+
+  <div class="fetch-bar">
+    <button class="btn btn-primary" onclick="autoMatch()">⚡ Auto-Match</button>
+    <button class="btn btn-ghost"   onclick="openAddOrgModal()">+ Add Org from Syncro</button>
+    <button class="btn btn-green"   onclick="saveMatches()">💾 Save Matches</button>
+    <button class="btn btn-ghost"   onclick="loadMatchesFromServer()">📂 Load Saved</button>
+    <span id="match-progress-lbl" style="font-size:0.8rem;color:var(--muted)"></span>
+  </div>
+
+  <div class="pbar-wrap" style="margin-bottom:16px">
+    <div class="pbar" id="match-pbar" style="width:0%"></div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Syncro Customer</th>
+          <th>→ Ninja Match</th>
+          <th>→ Pax8 Match</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="match-tbody">
+        <tr><td colspan="4" style="color:var(--muted);padding:20px">
+          Load orgs on the <a href="organisations.html" style="color:var(--syncro)">Organisations page</a> first, then click Auto-Match.
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Org Modal -->
+<div class="modal-overlay" id="addOrgModal" style="display:none" onclick="closeModalIfBg(event)">
+  <div class="modal-box">
+    <div class="modal-title">Add Organisation from Syncro (All Customers)</div>
+    <input class="modal-search" id="modalSearch" placeholder="Search all Syncro orgs…" oninput="renderModalList()">
+    <div class="modal-list" id="modalList"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeAddOrgModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="notif"></div>
+<script src="_shared.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', renderMatchTable);
+
+function autoMatch() {
+  const syncroOrgs = State.syncroOrgs;
+  if (!syncroOrgs.length) { notify('Fetch Syncro orgs first on the Organisations page', 'warn'); return; }
+  const ninjaOrgs = State.ninjaOrgs, pax8Orgs = State.pax8Orgs;
+  let matches = State.matches;
+  const existing = {};
+  matches.forEach(m => { existing[m.syncroId] = m; });
+
+  const newMatches = syncroOrgs.map(s => {
+    if (existing[s.id]) return existing[s.id];
+    const nm = bestMatch(s.name, ninjaOrgs), pm = bestMatch(s.name, pax8Orgs);
+    return {
+      syncroId: s.id, syncroName: s.name,
+      ninjaId: nm?.item.id || '', ninjaName: nm?.item.name || '',
+      pax8Id:  pm?.item.id || '', pax8Name:  pm?.item.name || '',
+      userConfirmed: false
+    };
+  });
+  const syncroIds = new Set(syncroOrgs.map(o => o.id));
+  matches.filter(m => !syncroIds.has(m.syncroId)).forEach(m => newMatches.push(m));
+  State.matches = newMatches;
+  renderMatchTable();
+  notify('Auto-match complete. User-confirmed matches preserved.', 'ok');
+}
+
+function openAddOrgModal() {
+  if (!State.syncroAllOrgs.length) { notify('Fetch Syncro orgs first on the Organisations page', 'warn'); return; }
+  document.getElementById('modalSearch').value = '';
+  renderModalList();
+  document.getElementById('addOrgModal').style.display = 'flex';
+}
+function closeAddOrgModal() { document.getElementById('addOrgModal').style.display = 'none'; }
+function closeModalIfBg(e) { if (e.target.classList.contains('modal-overlay')) closeAddOrgModal(); }
+
+function renderModalList() {
+  const q = document.getElementById('modalSearch').value.toLowerCase();
+  const added = new Set(State.matches.map(m => m.syncroId));
+  const filtered = State.syncroAllOrgs.filter(o => o.name.toLowerCase().includes(q) && !added.has(o.id));
+  const list = document.getElementById('modalList');
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:16px;color:var(--muted);text-align:center;font-size:0.83rem">No results</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(o => `
+    <div class="modal-item" onclick="addOrgFromModal('${o.id}')">
+      <span>${o.name}</span>
+      <span class="org-id">#${o.id} · ${o.schedules.length} sched.</span>
+    </div>`).join('');
+}
+
+function addOrgFromModal(syncroId) {
+  const org = State.syncroAllOrgs.find(o => o.id === syncroId);
+  if (!org) return;
+  const nm = bestMatch(org.name, State.ninjaOrgs), pm = bestMatch(org.name, State.pax8Orgs);
+  const matches = State.matches;
+  matches.push({
+    syncroId: org.id, syncroName: org.name,
+    ninjaId: nm?.item.id || '', ninjaName: nm?.item.name || '',
+    pax8Id:  pm?.item.id || '', pax8Name:  pm?.item.name || '',
+    userConfirmed: true
+  });
+  State.matches = matches;
+  closeAddOrgModal();
+  renderMatchTable();
+  notify(`"${org.name}" added`, 'ok');
+}
+
+function removeMatch(i) {
+  const matches = State.matches;
+  matches.splice(i, 1);
+  State.matches = matches;
+  renderMatchTable();
+  notify('Removed', 'warn');
+}
+
+function updateMatch(i, svc, id, name) {
+  const matches = State.matches;
+  if (svc === 'ninja') { matches[i].ninjaId = id; matches[i].ninjaName = name; }
+  if (svc === 'pax8')  { matches[i].pax8Id  = id; matches[i].pax8Name  = name; }
+  matches[i].userConfirmed = true;
+  State.matches = matches;
+}
+
+function renderMatchTable() {
+  const matches   = State.matches;
+  const ninjaOrgs = State.ninjaOrgs;
+  const pax8Orgs  = State.pax8Orgs;
+  const tbody     = document.getElementById('match-tbody');
+
+  if (!matches.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:20px">No organisations. Load orgs first, then Auto-Match.</td></tr>';
+    return;
+  }
+  const full = matches.filter(m => m.ninjaId && m.pax8Id).length;
+  document.getElementById('match-progress-lbl').textContent = `${full}/${matches.length} fully matched`;
+  document.getElementById('match-pbar').style.width = (full / matches.length * 100) + '%';
+
+  tbody.innerHTML = matches.map((m, i) => {
+    const nOpts = ninjaOrgs.map(o => `<option value="${o.id}" ${o.id === m.ninjaId ? 'selected' : ''}>${o.name}</option>`).join('');
+    const pOpts = pax8Orgs.map(o =>  `<option value="${o.id}" ${o.id === m.pax8Id  ? 'selected' : ''}>${o.name}</option>`).join('');
+    const uc = m.userConfirmed ? `<span class="tag tag-ok" style="margin-left:4px;font-size:0.65rem">✓</span>` : '';
+    return `<tr>
+      <td><strong>${m.syncroName}</strong>${uc}</td>
+      <td><select class="match-select" onchange="updateMatch(${i},'ninja',this.value,this.options[this.selectedIndex].text)">
+        <option value="">— None —</option>${nOpts}
+      </select></td>
+      <td><select class="match-select" onchange="updateMatch(${i},'pax8',this.value,this.options[this.selectedIndex].text)">
+        <option value="">— None —</option>${pOpts}
+      </select></td>
+      <td><button class="btn btn-red btn-sm" onclick="removeMatch(${i})">Remove</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveMatches() {
+  try {
+    await fetch(`${API}/matches`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matches: State.matches })
+    });
+    await fetch(`${API}/audited`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audited: State.auditedMap })
+    });
+    notify('Matches & audit flags saved', 'ok');
+  } catch(e) { notify('Save failed: ' + e.message, 'err'); }
+}
+
+async function loadMatchesFromServer() {
+  try {
+    const r  = await fetch(`${API}/matches`);
+    const j  = await r.json();
+    if (j.matches) {
+      State.matches = j.matches.map(m => ({ ...m, userConfirmed: true }));
+      renderMatchTable();
+      notify(`${j.matches.length} matches loaded`, 'ok');
+    }
+    const ra = await fetch(`${API}/audited`);
+    const ja = await ra.json();
+    if (ja.audited) State.auditedMap = ja.audited;
+  } catch(e) { notify('Load failed: ' + e.message, 'err'); }
+}
+</script>
+</body>
+</html>
