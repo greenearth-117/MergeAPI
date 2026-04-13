@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Organisations — MSP Console</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
+
+<div id="topbar">
+  <a href="index.html" class="logo">🛡 MSP Console</a>
+  <a href="organisations.html"   class="nav-link">① Organisations</a>
+  <a href="match-orgs.html"      class="nav-link">② Match Orgs</a>
+  <a href="counts-licenses.html" class="nav-link">③ Counts &amp; Licenses</a>
+  <a href="rename-sync.html"     class="nav-link">④ Rename &amp; Sync</a>
+</div>
+
+<div id="content">
+  <div class="page-title">Organisations</div>
+  <div class="page-sub">Syncro filtered: excludes schedules containing "yearly" or "firewall".</div>
+
+  <div class="fetch-bar">
+    <button class="btn btn-syncro"  onclick="fetchSyncroOrgs()">⟳ Fetch Syncro Orgs</button>
+    <button class="btn btn-ninja"   onclick="fetchNinjaOrgs()">⟳ Fetch Ninja Orgs</button>
+    <button class="btn btn-pax8"    onclick="fetchPax8Orgs()">⟳ Fetch Pax8 Orgs</button>
+    <button class="btn btn-primary" onclick="fetchAll()">⟳ Fetch All</button>
+    <input class="search-input" id="orgSearch" placeholder="Search…" oninput="renderOrgTables()">
+  </div>
+
+  <div class="stats">
+    <div class="stat-box"><div class="num" id="s-syncro">—</div><div class="lbl" style="color:var(--syncro)">Syncro (filtered)</div></div>
+    <div class="stat-box"><div class="num" id="s-syncro-all">—</div><div class="lbl" style="color:var(--syncro)">Syncro (all)</div></div>
+    <div class="stat-box"><div class="num" id="s-ninja">—</div><div class="lbl" style="color:var(--ninja)">Ninja Orgs</div></div>
+    <div class="stat-box"><div class="num" id="s-pax8">—</div><div class="lbl" style="color:var(--pax8)">Pax8 Companies</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+    <div class="card">
+      <div style="color:var(--syncro);font-weight:700;margin-bottom:10px">Syncro — Recurring Customers</div>
+      <div id="tbl-syncro"><span style="color:var(--muted)">Not fetched</span></div>
+    </div>
+    <div class="card">
+      <div style="color:var(--ninja);font-weight:700;margin-bottom:10px">NinjaOne</div>
+      <div id="tbl-ninja"><span style="color:var(--muted)">Not fetched</span></div>
+    </div>
+    <div class="card">
+      <div style="color:var(--pax8);font-weight:700;margin-bottom:10px">Pax8</div>
+      <div id="tbl-pax8"><span style="color:var(--muted)">Not fetched</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="notif"></div>
+<script src="_shared.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const so = State.syncroOrgs, sa = State.syncroAllOrgs;
+  const no = State.ninjaOrgs,  po = State.pax8Orgs;
+  if (so.length) document.getElementById('s-syncro').textContent     = so.length;
+  if (sa.length) document.getElementById('s-syncro-all').textContent = sa.length;
+  if (no.length) document.getElementById('s-ninja').textContent      = no.length;
+  if (po.length) document.getElementById('s-pax8').textContent       = po.length;
+  renderOrgTables();
+});
+
+async function fetchAll() {
+  await fetchSyncroOrgs();
+  await fetchNinjaOrgs();
+  await fetchPax8Orgs();
+}
+
+async function fetchSyncroOrgs() {
+  const el = document.getElementById('tbl-syncro');
+  try {
+    el.innerHTML = '<span class="spin"></span> Fetching schedules…';
+    let allSchedules = [], page = 1;
+    while (true) {
+      const r = await fetch(`${API}/syncro`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: `/schedules?per_page=600&page=${page}` })
+      });
+      const j = await r.json();
+      const batch = j.data?.schedules || [];
+      if (!batch.length) break;
+      allSchedules = allSchedules.concat(batch);
+      if (page >= (j.data?.meta?.total_pages || 1)) break;
+      page++;
+    }
+
+    const filtered = allSchedules.filter(s => {
+      const n = (s.name || '').toLowerCase();
+      return !n.includes('yearly') && !n.includes('firewall');
+    });
+    const recurringIds = new Set(filtered.map(s => String(s.customer_id)));
+
+    el.innerHTML = '<span class="spin"></span> Fetching customers…';
+    let allCustomers = []; page = 1;
+    while (true) {
+      const r = await fetch(`${API}/syncro`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: `/customers?per_page=600&page=${page}` })
+      });
+      const j = await r.json();
+      const batch = j.data?.customers || [];
+      if (!batch.length) break;
+      allCustomers = allCustomers.concat(batch);
+      if (page >= (j.data?.meta?.total_pages || 1)) break;
+      page++;
+    }
+
+    const allOrgs = allCustomers.map(c => ({
+      id: String(c.id),
+      name: c.business_name || `${c.firstname || ''} ${c.lastname || ''}`.trim() || `ID# ${c.id}`,
+      schedules: allSchedules.filter(s => String(s.customer_id) === String(c.id))
+    }));
+    const filteredOrgs = allOrgs
+      .filter(c => recurringIds.has(c.id))
+      .map(c => ({ ...c, schedules: filtered.filter(s => String(s.customer_id) === c.id) }));
+
+    State.syncroAllOrgs = allOrgs;
+    State.syncroOrgs    = filteredOrgs;
+    document.getElementById('s-syncro').textContent     = filteredOrgs.length;
+    document.getElementById('s-syncro-all').textContent = allOrgs.length;
+    renderOrgTables();
+    notify(`Syncro: ${filteredOrgs.length} recurring / ${allOrgs.length} total`, 'ok');
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">${e.message}</span>`;
+    notify('Syncro fetch failed: ' + e.message, 'err');
+  }
+}
+
+async function fetchNinjaOrgs() {
+  const el = document.getElementById('tbl-ninja');
+  el.innerHTML = '<span class="spin"></span> Loading…';
+  try {
+    const r = await fetch(`${API}/ninja`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: '/v2/organizations?pageSize=600' })
+    });
+    const j = await r.json();
+    let raw = j.data;
+    if (raw?.value && Array.isArray(raw.value)) raw = raw.value;
+    else if (!Array.isArray(raw)) raw = Object.values(raw).filter(v => v && typeof v === 'object');
+    const orgs = raw.map(o => ({ id: String(o.id), name: o.name || 'Unnamed' }));
+    State.ninjaOrgs = orgs;
+    document.getElementById('s-ninja').textContent = orgs.length;
+    renderOrgTables();
+    notify(`Ninja: ${orgs.length} organisations`, 'ok');
+  } catch(e) { notify('Ninja fetch failed: ' + e.message, 'err'); }
+}
+
+async function fetchPax8Orgs() {
+  const el = document.getElementById('tbl-pax8');
+  el.innerHTML = '<span class="spin"></span> Loading…';
+  try {
+    const data = await api('pax8', '/v1/companies?page=0&size=600');
+    const companies = data.content || data.data || (Array.isArray(data) ? data : []);
+    const orgs = companies.map(c => ({ id: String(c.id), name: c.name || 'Unnamed' }));
+    State.pax8Orgs = orgs;
+    document.getElementById('s-pax8').textContent = orgs.length;
+    renderOrgTables();
+    notify(`Pax8: ${orgs.length} companies`, 'ok');
+  } catch(e) { notify('Pax8 fetch failed: ' + e.message, 'err'); }
+}
+
+function renderOrgTables() {
+  const q  = (document.getElementById('orgSearch').value || '').toLowerCase();
+  const mkTable = arr => {
+    const f = arr.filter(o => o.name.toLowerCase().includes(q));
+    if (!f.length) return '<span style="color:var(--muted);font-size:0.82rem">No results</span>';
+    return `<table class="tbl"><tbody>${
+      f.map(o => `<tr><td>${o.name}</td><td style="color:var(--muted)">#${o.id}</td></tr>`).join('')
+    }</tbody></table>`;
+  };
+  const so = State.syncroOrgs, no = State.ninjaOrgs, po = State.pax8Orgs;
+  if (so.length) document.getElementById('tbl-syncro').innerHTML = mkTable(so);
+  if (no.length) document.getElementById('tbl-ninja').innerHTML  = mkTable(no);
+  if (po.length) document.getElementById('tbl-pax8').innerHTML   = mkTable(po);
+}
+</script>
+</body>
+</html>
