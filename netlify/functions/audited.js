@@ -1,0 +1,49 @@
+const { getStore } = (() => {
+  try { return require("@netlify/blobs"); }
+  catch { return { getStore: null }; }
+})();
+
+const STORE_KEY = "audit-flags";
+
+exports.handler = async (event) => {
+  const headers = {
+    "Access-Control-Allow-Origin":  "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
+  };
+
+  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers };
+
+  // GET — load audit flags
+  if (event.httpMethod === "GET") {
+    try {
+      if (!getStore) return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
+      const store = getStore("msp-console");
+      const raw   = await store.get(STORE_KEY);
+      if (!raw)   return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
+      return { statusCode: 200, headers, body: raw };
+    } catch (err) {
+      return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
+    }
+  }
+
+  // POST — save audit flags
+  if (event.httpMethod === "POST") {
+    try {
+      let parsed;
+      try { parsed = JSON.parse(event.body); }
+      catch { return { statusCode: 400, headers, body: JSON.stringify({ ok: false, error: "Invalid JSON" }) }; }
+
+      if (getStore) {
+        const store = getStore("msp-console");
+        await store.set(STORE_KEY, JSON.stringify(parsed));
+      }
+      return { statusCode: 200, headers, body: JSON.stringify({ ok: true }) };
+    } catch (err) {
+      return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
+    }
+  }
+
+  return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
+};
