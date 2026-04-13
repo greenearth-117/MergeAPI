@@ -1,49 +1,71 @@
-const { getStore } = (() => {
-  try { return require("@netlify/blobs"); }
-  catch { return { getStore: null }; }
-})();
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MSP Console</title>
+  <link rel="stylesheet" href="_shared.css">
+</head>
+<body>
 
-const STORE_KEY = "audit-flags";
+<div id="topbar">
+  <a href="index.html" class="logo">🛡 MSP Console</a>
+  <a href="organisations.html"   class="nav-link">① Organisations</a>
+  <a href="match-orgs.html"      class="nav-link">② Match Orgs</a>
+  <a href="counts-licenses.html" class="nav-link">③ Counts &amp; Licenses</a>
+  <a href="rename-sync.html"     class="nav-link">④ Rename &amp; Sync</a>
+</div>
 
-exports.handler = async (event) => {
-  const headers = {
-    "Access-Control-Allow-Origin":  "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Content-Type": "application/json",
-  };
+<div id="content">
+  <div class="page-title">Welcome to MSP Console</div>
+  <div class="page-sub">Your cross-platform MSP management dashboard.</div>
 
-  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers };
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:8px">
 
-  // GET — load audit flags
-  if (event.httpMethod === "GET") {
-    try {
-      if (!getStore) return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
-      const store = getStore("msp-console");
-      const raw   = await store.get(STORE_KEY);
-      if (!raw)   return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
-      return { statusCode: 200, headers, body: raw };
-    } catch (err) {
-      return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
-    }
-  }
+    <a href="organisations.html" style="text-decoration:none">
+      <div class="card" style="border-color:var(--syncro);cursor:pointer">
+        <div style="font-size:1.6rem;margin-bottom:8px">🏢</div>
+        <div style="font-weight:700;color:#fff;margin-bottom:4px">Organisations</div>
+        <div style="font-size:0.8rem;color:var(--muted)">Fetch and view customers from Syncro, NinjaRMM and Pax8</div>
+      </div>
+    </a>
 
-  // POST — save audit flags
-  if (event.httpMethod === "POST") {
-    try {
-      let parsed;
-      try { parsed = JSON.parse(event.body); }
-      catch { return { statusCode: 400, headers, body: JSON.stringify({ ok: false, error: "Invalid JSON" }) }; }
+    <a href="match-orgs.html" style="text-decoration:none">
+      <div class="card" style="border-color:var(--ninja);cursor:pointer">
+        <div style="font-size:1.6rem;margin-bottom:8px">🔗</div>
+        <div style="font-weight:700;color:#fff;margin-bottom:4px">Match Orgs</div>
+        <div style="font-size:0.8rem;color:var(--muted)">Link the same customer across all three platforms</div>
+      </div>
+    </a>
 
-      if (getStore) {
-        const store = getStore("msp-console");
-        await store.set(STORE_KEY, JSON.stringify(parsed));
-      }
-      return { statusCode: 200, headers, body: JSON.stringify({ ok: true }) };
-    } catch (err) {
-      return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
-    }
-  }
+    <a href="counts-licenses.html" style="text-decoration:none">
+      <div class="card" style="border-color:var(--pax8);cursor:pointer">
+        <div style="font-size:1.6rem;margin-bottom:8px">📊</div>
+        <div style="font-weight:700;color:#fff;margin-bottom:4px">Counts &amp; Licenses</div>
+        <div style="font-size:0.8rem;color:var(--muted)">Compare billing lines, license seats, and device counts</div>
+      </div>
+    </a>
 
-  return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
-};
+    <a href="rename-sync.html" style="text-decoration:none">
+      <div class="card" style="border-color:var(--purple);cursor:pointer">
+        <div style="font-size:1.6rem;margin-bottom:8px">✏️</div>
+        <div style="font-weight:700;color:#fff;margin-bottom:4px">Rename &amp; Sync</div>
+        <div style="font-size:0.8rem;color:var(--muted)">Push canonical names across all platforms at once</div>
+      </div>
+    </a>
+
+  </div>
+
+  <div class="card" style="margin-top:24px;font-size:0.83rem;color:var(--muted);line-height:1.7">
+    <strong style="color:var(--text)">Suggested workflow:</strong><br>
+    ① Fetch all orgs on the <a href="organisations.html" style="color:var(--syncro)">Organisations</a> page first —
+    then ② <a href="match-orgs.html" style="color:var(--ninja)">Match</a> them across platforms —
+    then ③ <a href="counts-licenses.html" style="color:var(--pax8)">load Counts</a> to audit billing —
+    finally ④ <a href="rename-sync.html" style="color:var(--purple)">Rename &amp; Sync</a> to clean up names.
+  </div>
+</div>
+
+<div id="notif"></div>
+<script src="_shared.js"></script>
+</body>
+</html>
