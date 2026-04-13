@@ -1,0 +1,5 @@
+node_modules/
+.env
+.netlify/
+api-engine.ps1
+*.ps1
