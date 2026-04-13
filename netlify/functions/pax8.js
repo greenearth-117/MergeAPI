@@ -1,4 +1,3 @@
-Blank
 exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin":  "*",
@@ -13,7 +12,10 @@ exports.handler = async (event) => {
   const clientId     = process.env.PAX8_CLIENT_ID;
   const clientSecret = process.env.PAX8_SECRET;
 
-  if (!clientId || !clientSecret) return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: "Pax8 credentials not configured" }) };
+  if (!clientId || !clientSecret) return {
+    statusCode: 500, headers,
+    body: JSON.stringify({ ok: false, error: "Pax8 credentials not configured" })
+  };
 
   let parsed;
   try { parsed = JSON.parse(event.body); }
@@ -23,20 +25,44 @@ exports.handler = async (event) => {
   if (!endpoint) return { statusCode: 400, headers, body: JSON.stringify({ ok: false, error: "Missing endpoint" }) };
 
   try {
-    const tokenResp = await fetch("https://api.pax8.com/v1/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id:     clientId,
-        client_secret: clientSecret,
-        audience:      "https://api.pax8.com",
-        grant_type:    "client_credentials",
-      }),
-    });
-    const tokenData = await tokenResp.json();
-    const token = tokenData.access_token;
-    if (!token) throw new Error("Failed to obtain Pax8 access token");
+    // Try new auth endpoint first, fall back to old one if it fails
+    let token = null;
 
+    // Attempt 1: new Pax8 login endpoint
+    try {
+      const tokenResp = await fetch("https://login.pax8.com/oauth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id:     clientId,
+          client_secret: clientSecret,
+          audience:      "https://api.pax8.com",
+          grant_type:    "client_credentials",
+        }),
+      });
+      const tokenData = await tokenResp.json();
+      if (tokenData.access_token) token = tokenData.access_token;
+    } catch(_) {}
+
+    // Attempt 2: old Pax8 token endpoint (fallback)
+    if (!token) {
+      const tokenResp = await fetch("https://api.pax8.com/v1/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id:     clientId,
+          client_secret: clientSecret,
+          audience:      "https://api.pax8.com",
+          grant_type:    "client_credentials",
+        }),
+      });
+      const tokenData = await tokenResp.json();
+      if (tokenData.access_token) token = tokenData.access_token;
+    }
+
+    if (!token) throw new Error("Failed to obtain Pax8 access token from either endpoint");
+
+    // Make the actual API call
     const url = `https://api.pax8.com${endpoint}`;
     const fetchOpts = {
       method: method.toUpperCase(),
@@ -46,10 +72,19 @@ exports.handler = async (event) => {
       fetchOpts.headers["Content-Type"] = "application/json";
       fetchOpts.body = JSON.stringify(reqBody);
     }
+
     const resp = await fetch(url, fetchOpts);
     const data = await resp.json();
-    return { statusCode: 200, headers, body: JSON.stringify({ status: resp.status, ok: resp.ok, endpoint, data }) };
+
+    return {
+      statusCode: 200, headers,
+      body: JSON.stringify({ status: resp.status, ok: resp.ok, endpoint, data })
+    };
+
   } catch (err) {
-    return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
+    return {
+      statusCode: 500, headers,
+      body: JSON.stringify({ ok: false, error: err.message })
+    };
   }
 };
