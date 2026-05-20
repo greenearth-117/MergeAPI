@@ -15,13 +15,23 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers };
 
+  if (!getStore) return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: "@netlify/blobs not available" }) };
+
+  const siteID = process.env.NETLIFY_SITE_ID;
+  const token  = process.env.NETLIFY_AUTH_TOKEN;
+
+  if (!siteID || !token) return {
+    statusCode: 500, headers,
+    body: JSON.stringify({ ok: false, error: "NETLIFY_SITE_ID or NETLIFY_AUTH_TOKEN not set" })
+  };
+
+  const store = getStore({ name: "msp-console", siteID, token });
+
   // GET — load audit flags
   if (event.httpMethod === "GET") {
     try {
-      if (!getStore) return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
-      const store = getStore("msp-console");
-      const raw   = await store.get(STORE_KEY);
-      if (!raw)   return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
+      const raw = await store.get(STORE_KEY);
+      if (!raw) return { statusCode: 200, headers, body: JSON.stringify({ audited: {} }) };
       return { statusCode: 200, headers, body: raw };
     } catch (err) {
       return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
@@ -34,11 +44,7 @@ exports.handler = async (event) => {
       let parsed;
       try { parsed = JSON.parse(event.body); }
       catch { return { statusCode: 400, headers, body: JSON.stringify({ ok: false, error: "Invalid JSON" }) }; }
-
-      if (getStore) {
-        const store = getStore("msp-console");
-        await store.set(STORE_KEY, JSON.stringify(parsed));
-      }
+      await store.set(STORE_KEY, JSON.stringify(parsed));
       return { statusCode: 200, headers, body: JSON.stringify({ ok: true }) };
     } catch (err) {
       return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: err.message }) };
