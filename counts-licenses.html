@@ -280,13 +280,22 @@ async function fetchOutstanding() {
 
   for (const m of State.matches) {
     try {
-      const r = await fetch(`${API}/syncro`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: `/invoices?customer_id=${m.syncroId}&status=unpaid&per_page=200` })
-      });
-      const j = await r.json();
-      const invoices = j.data?.invoices || [];
-      const total = invoices.reduce((sum, inv) => sum + parseFloat(inv.balance_due || inv.outstanding || 0), 0);
+      const [unpaidRes, partialRes] = await Promise.all([
+        fetch(`${API}/syncro`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: `/invoices?customer_id=${m.syncroId}&status=Unpaid&per_page=200` })
+        }),
+        fetch(`${API}/syncro`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: `/invoices?customer_id=${m.syncroId}&status=Partial&per_page=200` })
+        })
+      ]);
+      const [unpaidJson, partialJson] = await Promise.all([unpaidRes.json(), partialRes.json()]);
+      const invoices = [
+        ...(unpaidJson.data?.invoices  || []),
+        ...(partialJson.data?.invoices || [])
+      ];
+      const total = invoices.reduce((sum, inv) => sum + parseFloat(inv.balance_due || 0), 0);
       outstanding[m.syncroId] = total;
       grandTotal += total;
     } catch { outstanding[m.syncroId] = null; }
