@@ -22,9 +22,7 @@
 
   <div class="fetch-bar">
     <button class="btn btn-primary" onclick="fetchCounts()">⟳ Load All Counts</button>
-    <button class="btn btn-ghost"   onclick="fetchOutstanding()">💰 Fetch Outstanding</button>
     <span id="counts-status" style="font-size:0.8rem;color:var(--muted)"></span>
-    <span id="outstanding-total" style="font-size:0.85rem;font-weight:700;color:var(--yellow);margin-left:auto"></span>
   </div>
 
   <div class="card" style="padding:0;overflow:hidden">
@@ -34,7 +32,7 @@
           <th style="width:28px"></th>
           <th onclick="sortCounts('name')">Organisation <span class="sort-icon" id="si-name"></span></th>
           <th onclick="sortCounts('syncroTotal')" style="color:var(--syncro)">Syncro Total <span class="sort-icon" id="si-syncroTotal"></span></th>
-          <th onclick="sortCounts('outstanding')" style="color:var(--yellow)">Outstanding <span class="sort-icon" id="si-outstanding"></span></th>
+          <th onclick="sortCounts('health')">Health <span class="sort-icon" id="si-health"></span></th>
           <th onclick="sortCounts('pax8Total')"   style="color:var(--pax8)">Pax8 Licenses <span class="sort-icon" id="si-pax8Total"></span></th>
           <th onclick="sortCounts('ninjaTotal')"  style="color:var(--ninja)">Ninja Devices <span class="sort-icon" id="si-ninjaTotal"></span></th>
           <th onclick="sortCounts('status')">Status <span class="sort-icon" id="si-status"></span></th>
@@ -66,15 +64,16 @@ async function loadAuditedFromBlob() {
     const r = await fetch(`${API}/audited`);
     const j = await r.json();
     if (j.audited) State.auditedMap = j.audited;
+    if (j.health)  State.healthMap  = j.health;
   } catch { /* fall back to whatever is in sessionStorage */ }
 }
 
-async function saveAuditedToBlob(map) {
+async function savePersistentState() {
   try {
     await fetch(`${API}/audited`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audited: map })
+      body: JSON.stringify({ audited: State.auditedMap, health: State.healthMap })
     });
   } catch { /* non-critical — sessionStorage still has it */ }
 }
@@ -150,7 +149,7 @@ function getSortVal(m, col) {
   switch(col) {
     case 'name':        return m.syncroName.toLowerCase();
     case 'syncroTotal': return lineTotal;
-    case 'outstanding': return State.outstandingMap[m.syncroId] || 0;
+    case 'health':      return State.healthMap[m.syncroId] || 0;
     case 'pax8Total':   return p8t;
     case 'ninjaTotal':  return njt;
     case 'status':      return (m.ninjaId && m.pax8Id) ? 1 : 0;
@@ -164,10 +163,26 @@ function sortCounts(col) {
   renderCountsTable();
 }
 function toggleRow(id) { expandedRows.has(id) ? expandedRows.delete(id) : expandedRows.add(id); renderCountsTable(); }
+const HEALTH = [
+  { label: 'Good',     color: '#3dffa0', bg: '#0d3a22' },
+  { label: 'Warning',  color: '#ffd166', bg: '#3a2e0d' },
+  { label: 'Caution',  color: '#f7914f', bg: '#2a1500' },
+  { label: 'Critical', color: '#ff6b6b', bg: '#3a0d0d' },
+];
+
+function toggleHealth(id, e) {
+  e.stopPropagation();
+  const m = State.healthMap;
+  m[id] = ((m[id] || 0) + 1) % HEALTH.length;
+  State.healthMap = m;
+  savePersistentState();
+  renderCountsTable();
+}
+
 function toggleAudit(id, e) {
   e.stopPropagation();
   const m = State.auditedMap; m[id] = !m[id]; State.auditedMap = m;
-  saveAuditedToBlob(m);
+  savePersistentState();
   renderCountsTable();
 }
 
@@ -178,7 +193,7 @@ function renderCountsTable() {
     tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);padding:20px">No matches loaded. <a href="match-orgs.html" style="color:var(--ninja)">Go to Match Orgs</a>.</td></tr>';
     return;
   }
-  ['name','syncroTotal','outstanding','pax8Total','ninjaTotal','status','audited'].forEach(c => {
+  ['name','syncroTotal','health','pax8Total','ninjaTotal','status','audited'].forEach(c => {
     const el = document.getElementById('si-' + c);
     if (el) el.textContent = sortCol === c ? (sortDir === 1 ? '▲' : '▼') : '';
   });
@@ -186,10 +201,10 @@ function renderCountsTable() {
     const av = getSortVal(a, sortCol), bv = getSortVal(b, sortCol);
     return av < bv ? -sortDir : av > bv ? sortDir : 0;
   });
-  const countsData     = State.countsData;
-  const outstandingMap = State.outstandingMap;
-  const auditedMap     = State.auditedMap;
-  const allOrgs        = [...State.syncroAllOrgs, ...State.syncroOrgs];
+  const countsData = State.countsData;
+  const healthMap  = State.healthMap;
+  const auditedMap = State.auditedMap;
+  const allOrgs    = [...State.syncroAllOrgs, ...State.syncroOrgs];
   let html = '';
 
   sorted.forEach(m => {
@@ -200,8 +215,9 @@ function renderCountsTable() {
     const nj  = cd.ninjaParsed || { base:{qty:0,names:[]}, alacarte:{qty:0,names:[]} };
     const p8t = p8.base.qty + p8.alacarte.qty;
     const njt = nj.base.qty + nj.alacarte.qty;
-    const outstanding = outstandingMap[m.syncroId];
-    const isOpen      = expandedRows.has(m.syncroId);
+    const healthIdx = healthMap[m.syncroId] || 0;
+    const health    = HEALTH[healthIdx];
+    const isOpen    = expandedRows.has(m.syncroId);
     const mismatch    = schedTotal > 0 && Math.abs(lineTotal - schedTotal) > 0.05;
     const arrow       = `<span class="expand-arrow ${isOpen ? 'open' : ''}">▶</span>`;
     const status      = m.ninjaId && m.pax8Id ? '<span class="tag tag-ok">Ready</span>' : '<span class="tag tag-warn">Partial</span>';
@@ -217,7 +233,7 @@ function renderCountsTable() {
       <td style="text-align:center">${arrow}</td>
       <td><strong>${m.syncroName}</strong></td>
       ${syncroCell}
-      <td style="color:var(--yellow);font-weight:700">${outstanding != null ? '$' + outstanding.toFixed(2) : '—'}</td>
+      <td><button class="health-btn" style="background:${health.bg};color:${health.color};border-color:${health.color}" onclick="toggleHealth('${m.syncroId}',event)">${health.label}</button></td>
       <td style="color:var(--pax8);font-weight:700">${p8t || (cd.loaded ? '0' : '—')}</td>
       <td style="color:var(--ninja);font-weight:700">${njt || (cd.loaded ? '0' : '—')}</td>
       <td>${status}</td>
@@ -294,41 +310,6 @@ async function fetchCounts() {
   notify('Counts loaded', 'ok');
 }
 
-async function fetchOutstanding() {
-  if (!State.matches.length) { notify('No matches', 'warn'); return; }
-  const st = document.getElementById('counts-status');
-  st.textContent = 'Fetching outstanding balances…';
-  let grandTotal   = 0;
-  let outstanding  = State.outstandingMap;
-
-  for (const m of State.matches) {
-    try {
-      const [unpaidRes, partialRes] = await Promise.all([
-        fetch(`${API}/syncro`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: `/invoices?customer_id=${m.syncroId}&status=Unpaid&per_page=200` })
-        }),
-        fetch(`${API}/syncro`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: `/invoices?customer_id=${m.syncroId}&status=Partial&per_page=200` })
-        })
-      ]);
-      const [unpaidJson, partialJson] = await Promise.all([unpaidRes.json(), partialRes.json()]);
-      const invoices = [
-        ...(unpaidJson.data?.invoices  || []),
-        ...(partialJson.data?.invoices || [])
-      ];
-      const total = invoices.reduce((sum, inv) => sum + parseFloat(inv.balance_due || 0), 0);
-      outstanding[m.syncroId] = total;
-      grandTotal += total;
-    } catch { outstanding[m.syncroId] = null; }
-    State.outstandingMap = outstanding;
-    renderCountsTable();
-  }
-  document.getElementById('outstanding-total').textContent = `Total Outstanding: $${grandTotal.toFixed(2)}`;
-  st.textContent = '✓ Outstanding loaded';
-  notify(`Total outstanding: $${grandTotal.toFixed(2)}`, 'ok');
-}
 </script>
 </body>
 </html>

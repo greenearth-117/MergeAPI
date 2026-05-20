@@ -153,6 +153,12 @@ const State = {
   set outstandingMap(v) {
     sessionStorage.setItem("outstandingMap", JSON.stringify(v));
   },
+  get healthMap() {
+    return JSON.parse(sessionStorage.getItem("healthMap") || "{}");
+  },
+  set healthMap(v) {
+    sessionStorage.setItem("healthMap", JSON.stringify(v));
+  },
 };
 
 // ── Generic API proxy call ────────────────────────────────────────
