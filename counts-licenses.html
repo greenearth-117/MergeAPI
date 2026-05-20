@@ -56,7 +56,29 @@
 let expandedRows = new Set();
 let sortCol = 'name', sortDir = 1;
 
-document.addEventListener('DOMContentLoaded', renderCountsTable);
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAuditedFromBlob();
+  renderCountsTable();
+});
+
+async function loadAuditedFromBlob() {
+  try {
+    const r = await fetch(`${API}/audited`);
+    const j = await r.json();
+    if (j.audited) State.auditedMap = j.audited;
+  } catch { /* fall back to whatever is in sessionStorage */ }
+}
+
+async function saveAuditedToBlob(map) {
+  try {
+    await fetch(`${API}/audited`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audited: map })
+    });
+  } catch { /* non-critical — sessionStorage still has it */ }
+}
+
 
 function parseSyncroLines(schedules) {
   const cats = {
@@ -145,6 +167,7 @@ function toggleRow(id) { expandedRows.has(id) ? expandedRows.delete(id) : expand
 function toggleAudit(id, e) {
   e.stopPropagation();
   const m = State.auditedMap; m[id] = !m[id]; State.auditedMap = m;
+  saveAuditedToBlob(m);
   renderCountsTable();
 }
 
