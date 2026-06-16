@@ -37,10 +37,12 @@
           <th onclick="sortCounts('ninjaTotal')"  style="color:var(--ninja)">Ninja Devices <span class="sort-icon" id="si-ninjaTotal"></span></th>
           <th onclick="sortCounts('status')">Status <span class="sort-icon" id="si-status"></span></th>
           <th onclick="sortCounts('audited')">Audited <span class="sort-icon" id="si-audited"></span></th>
+          <th>Audited At</th>
+          <th>Audited By</th>
         </tr>
       </thead>
       <tbody id="counts-tbody">
-        <tr><td colspan="8" style="color:var(--muted);padding:20px">
+        <tr><td colspan="10" style="color:var(--muted);padding:20px">
           Complete matching on the <a href="match-orgs.html" style="color:var(--ninja)">Match Orgs page</a> first.
         </td></tr>
       </tbody>
@@ -153,7 +155,7 @@ function getSortVal(m, col) {
     case 'pax8Total':   return p8t;
     case 'ninjaTotal':  return njt;
     case 'status':      return (m.ninjaId && m.pax8Id) ? 1 : 0;
-    case 'audited':     return State.auditedMap[m.syncroId] ? 1 : 0;
+    case 'audited':     { const a = State.auditedMap[m.syncroId]; return (a?.on ?? a) ? 1 : 0; }
     default:            return 0;
   }
 }
@@ -181,7 +183,11 @@ function toggleHealth(id, e) {
 
 function toggleAudit(id, e) {
   e.stopPropagation();
-  const m = State.auditedMap; m[id] = !m[id]; State.auditedMap = m;
+  const m = State.auditedMap;
+  const current = m[id];
+  const isAudited = !!(current?.on ?? current);
+  m[id] = isAudited ? null : { on: true, timestamp: new Date().toISOString(), by: getActiveUser() };
+  State.auditedMap = m;
   savePersistentState();
   renderCountsTable();
 }
@@ -195,10 +201,15 @@ function buildRow(e) {
   const mismatch  = schedTotal > 0 && Math.abs(lineTotal - schedTotal) > 0.05;
   const arrow     = `<span class="expand-arrow ${isOpen ? 'open' : ''}">▶</span>`;
   const status    = m.ninjaId && m.pax8Id ? '<span class="tag tag-ok">Ready</span>' : '<span class="tag tag-warn">Partial</span>';
-  const audited   = State.auditedMap[m.syncroId];
-  const auditTag  = audited
+  const auditEntry = State.auditedMap[m.syncroId];
+  const isAudited  = !!(auditEntry?.on ?? auditEntry);
+  const auditTag   = isAudited
     ? `<span class="tag tag-audited"   onclick="toggleAudit('${m.syncroId}',event)">✓ Audited</span>`
     : `<span class="tag tag-unaudited" onclick="toggleAudit('${m.syncroId}',event)">— Unaudited</span>`;
+  const auditTs    = isAudited && auditEntry?.timestamp
+    ? new Date(auditEntry.timestamp).toLocaleString()
+    : '—';
+  const auditBy    = isAudited && auditEntry?.by ? auditEntry.by : '—';
   const syncroCell = mismatch
     ? `<td class="mismatch-cell" title="Line items $${lineTotal.toFixed(2)} ≠ schedule total $${schedTotal.toFixed(2)}">⚠ $${lineTotal.toFixed(2)}</td>`
     : `<td style="color:var(--syncro);font-weight:700">$${lineTotal.toFixed(2)}</td>`;
@@ -212,10 +223,12 @@ function buildRow(e) {
     <td style="color:var(--ninja);font-weight:700">${njt || (cd.loaded ? '0' : '—')}</td>
     <td>${status}</td>
     <td>${auditTag}</td>
+    <td style="color:var(--muted);font-size:0.78rem;white-space:nowrap">${auditTs}</td>
+    <td style="color:var(--muted);font-size:0.78rem;white-space:nowrap">${auditBy}</td>
   </tr>`;
 
   if (isOpen) {
-    html += `<tr class="counts-detail-row"><td colspan="8"><div class="detail-inner">
+    html += `<tr class="counts-detail-row"><td colspan="10"><div class="detail-inner">
       <div class="detail-section">
         <div class="detail-section-title" style="color:var(--syncro)">📋 Syncro Breakdown
           ${mismatch ? `<span style="color:var(--yellow);font-size:0.65rem"> ⚠ MISMATCH</span>` : ''}
@@ -253,7 +266,7 @@ function renderCountsTable() {
   const matches = State.matches;
   const tbody   = document.getElementById('counts-tbody');
   if (!matches.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);padding:20px">No matches loaded. <a href="match-orgs.html" style="color:var(--ninja)">Go to Match Orgs</a>.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="color:var(--muted);padding:20px">No matches loaded. <a href="match-orgs.html" style="color:var(--ninja)">Go to Match Orgs</a>.</td></tr>';
     return;
   }
 
@@ -289,26 +302,26 @@ function renderCountsTable() {
   let html = '';
 
   if (notLoaded.length) {
-    html += `<tr class="group-header-row"><td colspan="8">⏳ Pending — ${notLoaded.length} org${notLoaded.length !== 1 ? 's' : ''} awaiting count load</td></tr>`;
+    html += `<tr class="group-header-row"><td colspan="10">⏳ Pending — ${notLoaded.length} org${notLoaded.length !== 1 ? 's' : ''} awaiting count load</td></tr>`;
     notLoaded.forEach(e => { html += buildRow(e); });
   }
   if (bothBilled.length) {
-    html += `<tr class="group-header-row"><td colspan="8"><span style="color:var(--green)">✓ Both Platforms</span> · ${bothBilled.length} org${bothBilled.length !== 1 ? 's' : ''}</td></tr>`;
+    html += `<tr class="group-header-row"><td colspan="10"><span style="color:var(--green)">✓ Both Platforms</span> · ${bothBilled.length} org${bothBilled.length !== 1 ? 's' : ''}</td></tr>`;
     bothBilled.forEach(e => { html += buildRow(e); });
   }
   if (pax8Only.length) {
-    html += `<tr class="group-header-row"><td colspan="8"><span style="color:var(--pax8)">📦 Pax8 Only</span> — Ninja not yet billed · ${pax8Only.length} org${pax8Only.length !== 1 ? 's' : ''}</td></tr>`;
+    html += `<tr class="group-header-row"><td colspan="10"><span style="color:var(--pax8)">📦 Pax8 Only</span> — Ninja not yet billed · ${pax8Only.length} org${pax8Only.length !== 1 ? 's' : ''}</td></tr>`;
     pax8Only.forEach(e => { html += buildRow(e); });
   }
   if (ninjaOnly.length) {
-    html += `<tr class="group-header-row"><td colspan="8"><span style="color:var(--ninja)">💻 Ninja Only</span> — Pax8 not yet billed · ${ninjaOnly.length} org${ninjaOnly.length !== 1 ? 's' : ''}</td></tr>`;
+    html += `<tr class="group-header-row"><td colspan="10"><span style="color:var(--ninja)">💻 Ninja Only</span> — Pax8 not yet billed · ${ninjaOnly.length} org${ninjaOnly.length !== 1 ? 's' : ''}</td></tr>`;
     ninjaOnly.forEach(e => { html += buildRow(e); });
   }
   if (hiddenCount > 0) {
-    html += `<tr class="group-header-row group-header-hidden"><td colspan="8">${hiddenCount} org${hiddenCount !== 1 ? 's' : ''} not shown — both Pax8 and Ninja count are 0 (not in billing)</td></tr>`;
+    html += `<tr class="group-header-row group-header-hidden"><td colspan="10">${hiddenCount} org${hiddenCount !== 1 ? 's' : ''} not shown — both Pax8 and Ninja count are 0 (not in billing)</td></tr>`;
   }
 
-  tbody.innerHTML = html || '<tr><td colspan="8" style="color:var(--muted);padding:20px">No matches loaded.</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="10" style="color:var(--muted);padding:20px">No matches loaded.</td></tr>';
 }
 
 async function fetchCounts() {

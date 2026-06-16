@@ -96,6 +96,11 @@ function signOut() {
   });
 }
 
+function getActiveUser() {
+  const account = _msalInstance?.getActiveAccount();
+  return account?.name || account?.username || 'Unknown';
+}
+
 document.addEventListener("DOMContentLoaded", initAuth);
 
 // ── API base URL ──────────────────────────────────────────────────
