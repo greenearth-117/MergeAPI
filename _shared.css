@@ -284,3 +284,18 @@ button { cursor: pointer; font-family: inherit; }
 .cat-base     { background: #1a3a2a; color: var(--green); }
 .cat-alacarte { background: #2a2a1a; color: var(--yellow); }
 .mismatch-cell { color: var(--yellow) !important; background: #2a200a !important; }
+
+/* ── Group section headers (Counts page) ──────────────────────── */
+.group-header-row td {
+  background: #0d1520 !important;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  font-weight: 700;
+  padding: 6px 12px !important;
+  border-top: 2px solid var(--border);
+  cursor: default;
+}
+.group-header-row:hover td { background: #0d1520 !important; }
+.group-header-hidden td { color: #2e3a4a !important; }

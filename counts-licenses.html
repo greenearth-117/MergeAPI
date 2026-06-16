@@ -186,6 +186,69 @@ function toggleAudit(id, e) {
   renderCountsTable();
 }
 
+function buildRow(e) {
+  const { m, org, cd, p8, nj, p8t, njt } = e;
+  const { cats, lineTotal, schedTotal } = parseSyncroLines(org?.schedules || []);
+  const healthIdx = State.healthMap[m.syncroId] || 0;
+  const health    = HEALTH[healthIdx];
+  const isOpen    = expandedRows.has(m.syncroId);
+  const mismatch  = schedTotal > 0 && Math.abs(lineTotal - schedTotal) > 0.05;
+  const arrow     = `<span class="expand-arrow ${isOpen ? 'open' : ''}">▶</span>`;
+  const status    = m.ninjaId && m.pax8Id ? '<span class="tag tag-ok">Ready</span>' : '<span class="tag tag-warn">Partial</span>';
+  const audited   = State.auditedMap[m.syncroId];
+  const auditTag  = audited
+    ? `<span class="tag tag-audited"   onclick="toggleAudit('${m.syncroId}',event)">✓ Audited</span>`
+    : `<span class="tag tag-unaudited" onclick="toggleAudit('${m.syncroId}',event)">— Unaudited</span>`;
+  const syncroCell = mismatch
+    ? `<td class="mismatch-cell" title="Line items $${lineTotal.toFixed(2)} ≠ schedule total $${schedTotal.toFixed(2)}">⚠ $${lineTotal.toFixed(2)}</td>`
+    : `<td style="color:var(--syncro);font-weight:700">$${lineTotal.toFixed(2)}</td>`;
+
+  let html = `<tr class="counts-main-row" onclick="toggleRow('${m.syncroId}')">
+    <td style="text-align:center">${arrow}</td>
+    <td><strong>${m.syncroName}</strong></td>
+    ${syncroCell}
+    <td><button class="health-btn" style="background:${health.bg};color:${health.color};border-color:${health.color}" onclick="toggleHealth('${m.syncroId}',event)">${health.label}</button></td>
+    <td style="color:var(--pax8);font-weight:700">${p8t || (cd.loaded ? '0' : '—')}</td>
+    <td style="color:var(--ninja);font-weight:700">${njt || (cd.loaded ? '0' : '—')}</td>
+    <td>${status}</td>
+    <td>${auditTag}</td>
+  </tr>`;
+
+  if (isOpen) {
+    html += `<tr class="counts-detail-row"><td colspan="8"><div class="detail-inner">
+      <div class="detail-section">
+        <div class="detail-section-title" style="color:var(--syncro)">📋 Syncro Breakdown
+          ${mismatch ? `<span style="color:var(--yellow);font-size:0.65rem"> ⚠ MISMATCH</span>` : ''}
+        </div>
+        ${[['RMM',cats.RMM,'base'],['Email',cats.Email,'base'],['Users (Unlimited)',cats.Users,'base'],['AlaCarte',cats.AlaCarte,'alacarte']].map(([lbl,cat,b]) => `
+        <div class="detail-line">
+          <span class="dl-label">${lbl} <span class="cat-badge cat-${b}">${b === 'base' ? 'Base' : 'AlaCarte'}</span></span>
+          <span class="dl-val">${cat.qty}u × $${cat.unit.toFixed(2)} = $${cat.cost.toFixed(2)}</span>
+        </div>`).join('')}
+        <div class="detail-total"><span>Line Total</span><span>$${lineTotal.toFixed(2)}</span></div>
+        ${schedTotal > 0 ? `<div class="detail-total" style="color:${mismatch ? 'var(--yellow)' : 'var(--muted)'}"><span>Schedule Total</span><span>$${schedTotal.toFixed(2)}</span></div>` : ''}
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title" style="color:var(--pax8)">📦 Pax8 Licenses</div>
+        <div class="detail-line"><span class="dl-label">Core Base <span class="cat-badge cat-base">Base</span></span><span class="dl-val">${p8.base.qty} seats</span></div>
+        ${p8.base.names.slice(0,5).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n.name}</span><span class="dl-val">${n.qty} seat${n.qty!==1?'s':''}${n.price?' @ $'+parseFloat(n.price).toFixed(2):''}</span></div>`).join('')}
+        <div class="detail-line" style="margin-top:4px"><span class="dl-label">AlaCarte <span class="cat-badge cat-alacarte">AlaCarte</span></span><span class="dl-val">${p8.alacarte.qty} seats</span></div>
+        ${p8.alacarte.names.slice(0,5).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n.name}</span><span class="dl-val">${n.qty} seat${n.qty!==1?'s':''}${n.price?' @ $'+parseFloat(n.price).toFixed(2):''}</span></div>`).join('')}
+        <div class="detail-total"><span>Total</span><span>${p8t}</span></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title" style="color:var(--ninja)">💻 Ninja Devices</div>
+        <div class="detail-line"><span class="dl-label">Workstations &amp; Servers <span class="cat-badge cat-base">Base</span></span><span class="dl-val">${nj.base.qty}</span></div>
+        ${nj.base.names.slice(0,4).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n}</span></div>`).join('')}
+        <div class="detail-line" style="margin-top:4px"><span class="dl-label">Other <span class="cat-badge cat-alacarte">AlaCarte</span></span><span class="dl-val">${nj.alacarte.qty}</span></div>
+        ${nj.alacarte.names.slice(0,4).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n}</span></div>`).join('')}
+        <div class="detail-total"><span>Total</span><span>${njt}</span></div>
+      </div>
+    </div></td></tr>`;
+  }
+  return html;
+}
+
 function renderCountsTable() {
   const matches = State.matches;
   const tbody   = document.getElementById('counts-tbody');
@@ -193,87 +256,59 @@ function renderCountsTable() {
     tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);padding:20px">No matches loaded. <a href="match-orgs.html" style="color:var(--ninja)">Go to Match Orgs</a>.</td></tr>';
     return;
   }
+
   ['name','syncroTotal','health','pax8Total','ninjaTotal','status','audited'].forEach(c => {
     const el = document.getElementById('si-' + c);
     if (el) el.textContent = sortCol === c ? (sortDir === 1 ? '▲' : '▼') : '';
   });
-  const sorted = [...matches].sort((a, b) => {
-    const av = getSortVal(a, sortCol), bv = getSortVal(b, sortCol);
-    return av < bv ? -sortDir : av > bv ? sortDir : 0;
-  });
-  const countsData = State.countsData;
-  const healthMap  = State.healthMap;
-  const auditedMap = State.auditedMap;
-  const allOrgs    = [...State.syncroAllOrgs, ...State.syncroOrgs];
-  let html = '';
 
-  sorted.forEach(m => {
+  const allOrgs    = [...State.syncroAllOrgs, ...State.syncroOrgs];
+  const countsData = State.countsData;
+
+  const enriched = matches.map(m => {
     const org = allOrgs.find(o => o.id === m.syncroId);
     const cd  = countsData[m.syncroId] || {};
-    const { cats, lineTotal, schedTotal } = parseSyncroLines(org?.schedules || []);
     const p8  = cd.pax8Parsed  || { base:{qty:0,names:[]}, alacarte:{qty:0,names:[]} };
     const nj  = cd.ninjaParsed || { base:{qty:0,names:[]}, alacarte:{qty:0,names:[]} };
     const p8t = p8.base.qty + p8.alacarte.qty;
     const njt = nj.base.qty + nj.alacarte.qty;
-    const healthIdx = healthMap[m.syncroId] || 0;
-    const health    = HEALTH[healthIdx];
-    const isOpen    = expandedRows.has(m.syncroId);
-    const mismatch    = schedTotal > 0 && Math.abs(lineTotal - schedTotal) > 0.05;
-    const arrow       = `<span class="expand-arrow ${isOpen ? 'open' : ''}">▶</span>`;
-    const status      = m.ninjaId && m.pax8Id ? '<span class="tag tag-ok">Ready</span>' : '<span class="tag tag-warn">Partial</span>';
-    const audited     = auditedMap[m.syncroId];
-    const auditTag    = audited
-      ? `<span class="tag tag-audited"   onclick="toggleAudit('${m.syncroId}',event)">✓ Audited</span>`
-      : `<span class="tag tag-unaudited" onclick="toggleAudit('${m.syncroId}',event)">— Unaudited</span>`;
-    const syncroCell  = mismatch
-      ? `<td class="mismatch-cell" title="Line items $${lineTotal.toFixed(2)} ≠ schedule total $${schedTotal.toFixed(2)}">⚠ $${lineTotal.toFixed(2)}</td>`
-      : `<td style="color:var(--syncro);font-weight:700">$${lineTotal.toFixed(2)}</td>`;
-
-    html += `<tr class="counts-main-row" onclick="toggleRow('${m.syncroId}')">
-      <td style="text-align:center">${arrow}</td>
-      <td><strong>${m.syncroName}</strong></td>
-      ${syncroCell}
-      <td><button class="health-btn" style="background:${health.bg};color:${health.color};border-color:${health.color}" onclick="toggleHealth('${m.syncroId}',event)">${health.label}</button></td>
-      <td style="color:var(--pax8);font-weight:700">${p8t || (cd.loaded ? '0' : '—')}</td>
-      <td style="color:var(--ninja);font-weight:700">${njt || (cd.loaded ? '0' : '—')}</td>
-      <td>${status}</td>
-      <td>${auditTag}</td>
-    </tr>`;
-
-    if (isOpen) {
-      html += `<tr class="counts-detail-row"><td colspan="8"><div class="detail-inner">
-        <div class="detail-section">
-          <div class="detail-section-title" style="color:var(--syncro)">📋 Syncro Breakdown
-            ${mismatch ? `<span style="color:var(--yellow);font-size:0.65rem"> ⚠ MISMATCH</span>` : ''}
-          </div>
-          ${[['RMM',cats.RMM,'base'],['Email',cats.Email,'base'],['Users (Unlimited)',cats.Users,'base'],['AlaCarte',cats.AlaCarte,'alacarte']].map(([lbl,cat,b]) => `
-          <div class="detail-line">
-            <span class="dl-label">${lbl} <span class="cat-badge cat-${b}">${b === 'base' ? 'Base' : 'AlaCarte'}</span></span>
-            <span class="dl-val">${cat.qty}u × $${cat.unit.toFixed(2)} = $${cat.cost.toFixed(2)}</span>
-          </div>`).join('')}
-          <div class="detail-total"><span>Line Total</span><span>$${lineTotal.toFixed(2)}</span></div>
-          ${schedTotal > 0 ? `<div class="detail-total" style="color:${mismatch ? 'var(--yellow)' : 'var(--muted)'}"><span>Schedule Total</span><span>$${schedTotal.toFixed(2)}</span></div>` : ''}
-        </div>
-        <div class="detail-section">
-          <div class="detail-section-title" style="color:var(--pax8)">📦 Pax8 Licenses</div>
-          <div class="detail-line"><span class="dl-label">Core Base <span class="cat-badge cat-base">Base</span></span><span class="dl-val">${p8.base.qty} seats</span></div>
-          ${p8.base.names.slice(0,5).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n.name}</span><span class="dl-val">${n.qty} seat${n.qty!==1?'s':''}${n.price?' @ $'+parseFloat(n.price).toFixed(2):''}</span></div>`).join('')}
-          <div class="detail-line" style="margin-top:4px"><span class="dl-label">AlaCarte <span class="cat-badge cat-alacarte">AlaCarte</span></span><span class="dl-val">${p8.alacarte.qty} seats</span></div>
-          ${p8.alacarte.names.slice(0,5).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n.name}</span><span class="dl-val">${n.qty} seat${n.qty!==1?'s':''}${n.price?' @ $'+parseFloat(n.price).toFixed(2):''}</span></div>`).join('')}
-          <div class="detail-total"><span>Total</span><span>${p8t}</span></div>
-        </div>
-        <div class="detail-section">
-          <div class="detail-section-title" style="color:var(--ninja)">💻 Ninja Devices</div>
-          <div class="detail-line"><span class="dl-label">Workstations &amp; Servers <span class="cat-badge cat-base">Base</span></span><span class="dl-val">${nj.base.qty}</span></div>
-          ${nj.base.names.slice(0,4).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n}</span></div>`).join('')}
-          <div class="detail-line" style="margin-top:4px"><span class="dl-label">Other <span class="cat-badge cat-alacarte">AlaCarte</span></span><span class="dl-val">${nj.alacarte.qty}</span></div>
-          ${nj.alacarte.names.slice(0,4).map(n => `<div class="detail-line" style="padding-left:10px"><span class="dl-label" style="font-size:0.73rem">↳ ${n}</span></div>`).join('')}
-          <div class="detail-total"><span>Total</span><span>${njt}</span></div>
-        </div>
-      </div></td></tr>`;
-    }
+    return { m, org, cd, p8, nj, p8t, njt };
   });
-  tbody.innerHTML = html;
+
+  const sortFn = (a, b) => {
+    const av = getSortVal(a.m, sortCol), bv = getSortVal(b.m, sortCol);
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  };
+
+  const notLoaded   = enriched.filter(e => !e.cd.loaded).sort(sortFn);
+  const bothBilled  = enriched.filter(e => e.cd.loaded && e.p8t > 0 && e.njt > 0).sort(sortFn);
+  const pax8Only    = enriched.filter(e => e.cd.loaded && e.p8t > 0 && e.njt === 0).sort(sortFn);
+  const ninjaOnly   = enriched.filter(e => e.cd.loaded && e.p8t === 0 && e.njt > 0).sort(sortFn);
+  const hiddenCount = enriched.filter(e => e.cd.loaded && e.p8t === 0 && e.njt === 0).length;
+
+  let html = '';
+
+  if (notLoaded.length) {
+    html += `<tr class="group-header-row"><td colspan="8">⏳ Pending — ${notLoaded.length} org${notLoaded.length !== 1 ? 's' : ''} awaiting count load</td></tr>`;
+    notLoaded.forEach(e => { html += buildRow(e); });
+  }
+  if (bothBilled.length) {
+    html += `<tr class="group-header-row"><td colspan="8"><span style="color:var(--green)">✓ Both Platforms</span> · ${bothBilled.length} org${bothBilled.length !== 1 ? 's' : ''}</td></tr>`;
+    bothBilled.forEach(e => { html += buildRow(e); });
+  }
+  if (pax8Only.length) {
+    html += `<tr class="group-header-row"><td colspan="8"><span style="color:var(--pax8)">📦 Pax8 Only</span> — Ninja not yet billed · ${pax8Only.length} org${pax8Only.length !== 1 ? 's' : ''}</td></tr>`;
+    pax8Only.forEach(e => { html += buildRow(e); });
+  }
+  if (ninjaOnly.length) {
+    html += `<tr class="group-header-row"><td colspan="8"><span style="color:var(--ninja)">💻 Ninja Only</span> — Pax8 not yet billed · ${ninjaOnly.length} org${ninjaOnly.length !== 1 ? 's' : ''}</td></tr>`;
+    ninjaOnly.forEach(e => { html += buildRow(e); });
+  }
+  if (hiddenCount > 0) {
+    html += `<tr class="group-header-row group-header-hidden"><td colspan="8">${hiddenCount} org${hiddenCount !== 1 ? 's' : ''} not shown — both Pax8 and Ninja count are 0 (not in billing)</td></tr>`;
+  }
+
+  tbody.innerHTML = html || '<tr><td colspan="8" style="color:var(--muted);padding:20px">No matches loaded.</td></tr>';
 }
 
 async function fetchCounts() {
